@@ -460,8 +460,10 @@ export default function ShortestPathLab() {
               </div>
 
               {algoNeedsNonNeg && negEdgesPresent && (
-                <div style={{ background: "#fbeae0", border: `1px solid ${C.amber}`, color: "#8a4a16",
-                  padding: "8px 10px", borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>
+                <div style={{
+                  background: "#fbeae0", border: `1px solid ${C.amber}`, color: "#8a4a16",
+                  padding: "8px 10px", borderRadius: 8, fontSize: 12.5, marginBottom: 10
+                }}>
                   This graph has negative edges. {ALGOS[algo].name} assumes weights ≥ 0, so results may be wrong — switch to Johnson.
                 </div>
               )}
@@ -565,9 +567,63 @@ function Story() {
           and revisits the rest later — avoiding the full sort. It won a Best Paper Award at STOC 2025.
         </p>
       </div>
+      <div style={card}>
+        <span style={year(C.danger)}>2024–2026 · the harder sibling</span>
+        <h3 style={{ ...h, marginTop: 8 }}>Speeding up negative-weight paths</h3>
+        <p style={p}>
+          DMMSY only covers non-negative weights. The harder problem — real <em>negative</em> weights, Johnson's
+          original territory — sat at O(mn) for ~65 years. Fineman (2024) broke that with a randomized Õ(mn^(8/9))
+          algorithm; Huang, Jin and Quanrud improved it to Õ(mn^(4/5)) and then, in 2026, to Õ(mn^(3/4) + m^(4/5)·n);
+          and a 2026 result (Quanrud–Tajkhorshid, STOC 2026) reached about O(mn^0.72) via "negative-edge
+          sparsification". The thread back to 1977 is unbroken: these algorithms still rely on Johnson's potentials
+          to reweight edges — they just compute them far more cleverly. Note these are randomized, theoretical
+          milestones; Dijkstra and DMMSY remain the practical tools.
+        </p>
+      </div>
+
+      {/* visual timeline */}
+      <div style={card}>
+        <h3 style={{ ...h }}>Timeline at a glance</h3>
+        <Timeline />
+      </div>
+
       <div style={{ ...card, marginBottom: 0, fontFamily: "system-ui, sans-serif", fontSize: 12.5, color: C.faint }}>
         <strong style={{ color: C.ink }}>Sources:</strong> Duan, Mao, Mao, Shu, Yin, "Breaking the Sorting Barrier for
-        Directed Single-Source Shortest Paths," STOC 2025 (arXiv:2504.17033); Quanta Magazine coverage, Aug 2025.
+        Directed Single-Source Shortest Paths," STOC 2025 (arXiv:2504.17033); Quanta Magazine, Aug 2025;
+        Quanrud & Tajkhorshid, "From Hop Reduction to Sparsification for Negative Length Shortest Paths," STOC 2026
+        (arXiv:2511.18253); Fineman, STOC 2024.
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------- timeline -----------------------------
+function Timeline() {
+  const rows = [
+    { year: "1959", color: C.moss, label: "Dijkstra", note: "O(m + n log n), weights ≥ 0", w: 0.30 },
+    { year: "1977", color: C.amber, label: "Johnson", note: "reweighting → handles negative edges", w: 0.42 },
+    { year: "2024", color: C.danger, label: "Fineman", note: "Õ(mn^8/9), negative real weights", w: 0.58 },
+    { year: "2025", color: C.plum, label: "DMMSY", note: "O(m·log^2/3 n), breaks sorting barrier", w: 0.80 },
+    { year: "2026", color: C.danger, label: "Quanrud–Tajkhorshid", note: "≈ O(mn^0.72), sparsification", w: 0.95 },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+      {rows.map((r, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, fontFamily: "system-ui, sans-serif" }}>
+          <div style={{ width: 44, fontWeight: 700, fontSize: 13, color: r.color, flexShrink: 0 }}>{r.year}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <strong style={{ fontSize: 13.5 }}>{r.label}</strong>
+              <span style={{ fontSize: 12, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note}</span>
+            </div>
+            <div style={{ height: 8, background: C.paper, borderRadius: 5, marginTop: 4, overflow: "hidden", border: `1px solid ${C.line}` }}>
+              <div style={{ width: `${r.w * 100}%`, height: "100%", background: r.color, borderRadius: 5, transition: "width .4s" }} />
+            </div>
+          </div>
+        </div>
+      ))}
+      <div style={{ fontSize: 11.5, color: C.faint, fontFamily: "system-ui, sans-serif", marginTop: 2 }}>
+        Bar length is illustrative — it suggests "how far past the old barriers", not exact speed.
       </div>
     </div>
   );
