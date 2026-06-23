@@ -3,6 +3,12 @@
 ## Overview
 This project presents an interactive demonstration, narrative, and slide deck exploring the evolution of Single-Source Shortest Path (SSSP) algorithms. It highlights the journey from the classical baseline (Dijkstra and Johnson) to modern breakthroughs (2022-2026) that broke the 66-year-old sorting barrier and pushed negative-weight limits to near-linear times.
 
+## How to Run
+To run the interactive demo locally:
+1. Navigate to the demo directory: `cd sssp-demo`
+2. Install dependencies: `npm install`
+3. Start the development server: `npm run dev`
+
 ## The Interactive Demo (`ShortestPathLab_1.jsx`)
 The core of this project is a sophisticated React-based artifact that serves three distinct modes:
 
