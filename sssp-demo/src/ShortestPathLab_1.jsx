@@ -829,7 +829,7 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
           <Eyebrow color={C.live}>Single-source shortest paths · 2022–2026</Eyebrow>
-          <h1 style={{ fontFamily: serif, fontSize: "clamp(24px,4vw,34px)", margin: "3px 0 0", letterSpacing: -0.4 }}>From Dijkstra to the sorting-barrier break</h1>
+          <h1 style={{ fontFamily: serif, fontSize: "clamp(24px,4vw,34px)", margin: "3px 0 0", letterSpacing: -0.4, color: "inherit" }}>From Dijkstra to the sorting-barrier break</h1>
         </div>
         <div style={{ display: "flex", gap: 7 }}>{modes.map(([k, l]) => <button key={k} onClick={() => setMode(k)} style={tab(mode === k)}>{l}</button>)}</div>
       </div>
