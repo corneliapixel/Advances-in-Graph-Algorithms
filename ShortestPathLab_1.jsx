@@ -2,39 +2,24 @@ import React, { useState, useEffect, useRef } from "react";
 
 /*
   Shortest-Path Lab — Advances in SSSP (2022–2026)
-  Three modes in one artifact:
-    • Lab    — interactive, steppable demo (Dijkstra, Johnson, DMMSY-style band/pivot)
-    • Story  — the written narrative, organised by the three research tracks
-    • Slides — a projection-ready presentation deck
-  Built for an internship task. Research collected via Gemini Deep Research and
-  verified against primary arXiv/STOC/FOCS/SODA sources; demo built with Claude.
+  Modes: Lab (interactive demo) · Story (narrative) · Slides (deck).
+  Research via Gemini Deep Research, verified against primary sources
+  (arXiv / STOC / FOCS / SODA; Johnson 1977 = JACM 24(1):1–13). Demo built with Claude.
 */
 
 // ----------------------------- design tokens -----------------------------
 const C = {
-  ink: "#1b2430",
-  canvas: "#eceef2",
-  surface: "#ffffff",
-  surfaceAlt: "#f4f6f9",
-  line: "#d4d9e0",
-  faint: "#6b7480",
-  green: "#2f7d5d",   // non-negative weights track
-  amber: "#c07a1e",   // integer-negative track
-  violet: "#7a4fa3",  // real-negative track
-  live: "#0e93a4",    // active relaxation / accent
+  ink: "#1b2430", canvas: "#eceef2", surface: "#ffffff", surfaceAlt: "#f4f6f9",
+  line: "#d4d9e0", faint: "#6b7480",
+  green: "#2f7d5d",  // non-negative weights
+  amber: "#c07a1e",  // integer-negative
+  violet: "#7a4fa3", // real-negative
+  live: "#0e93a4",   // active relaxation / accent
   danger: "#c0473f",
+  pick: "#fff3d6",   // selected-edge highlight
 };
-// lighter variants for the dark slides
-const D = {
-  bg: "#161d27",
-  panel: "#1f2833",
-  line: "#33404e",
-  text: "#eef1f5",
-  faint: "#9aa6b2",
-  green: "#5cc795",
-  violet: "#b58be0",
-  live: "#36cdda",
-};
+const D = { bg: "#161d27", panel: "#1f2833", line: "#33404e", text: "#eef1f5", faint: "#9aa6b2", green: "#5cc795", violet: "#b58be0", live: "#36cdda" };
+const AMBER_D = "#e6a44d";
 
 const serif = "'Iowan Old Style','Palatino Linotype','Book Antiqua',Palatino,Georgia,serif";
 const sans = "system-ui,-apple-system,'Segoe UI',Roboto,sans-serif";
@@ -46,27 +31,17 @@ const TRACK = {
   realneg: { c: C.violet, label: "Real negative weights" },
 };
 
-// monospace complexity bound
 function K({ children, color }) {
-  return (
-    <span style={{ fontFamily: mono, fontSize: "0.92em", color: color || C.ink, whiteSpace: "nowrap" }}>
-      {children}
-    </span>
-  );
+  return <span style={{ fontFamily: mono, fontSize: "0.92em", color: color || C.ink, whiteSpace: "nowrap" }}>{children}</span>;
 }
 function Eyebrow({ children, color }) {
-  return (
-    <div style={{ fontFamily: sans, fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase",
-      color: color || C.faint, fontWeight: 700 }}>{children}</div>
-  );
+  return <div style={{ fontFamily: sans, fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", color: color || C.faint, fontWeight: 700 }}>{children}</div>;
 }
-function TrackTag({ track, dark }) {
+function TrackTag({ track }) {
   const tk = TRACK[track];
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: sans, fontSize: 11.5,
-      fontWeight: 600, color: dark ? "#fff" : tk.c }}>
-      <span style={{ width: 9, height: 9, borderRadius: 2, background: tk.c }} />
-      {tk.label}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: sans, fontSize: 11.5, fontWeight: 600, color: tk.c }}>
+      <span style={{ width: 9, height: 9, borderRadius: 2, background: tk.c }} />{tk.label}
     </span>
   );
 }
@@ -75,66 +50,42 @@ function TrackTag({ track, dark }) {
 //  GRAPHS
 // ============================================================================
 function gNonNeg() {
-  return {
-    nodes: [
-      { id: 0, x: 120, y: 200 }, { id: 1, x: 280, y: 90 }, { id: 2, x: 280, y: 310 },
-      { id: 3, x: 450, y: 90 }, { id: 4, x: 450, y: 310 }, { id: 5, x: 610, y: 200 },
-    ],
-    edges: [[0,1,4],[0,2,2],[1,2,5],[1,3,10],[2,4,3],[3,5,11],[4,3,4],[4,5,5],[2,1,1]],
-    source: 0,
-  };
+  return { nodes: [{ id: 0, x: 120, y: 200 }, { id: 1, x: 280, y: 90 }, { id: 2, x: 280, y: 310 }, { id: 3, x: 450, y: 90 }, { id: 4, x: 450, y: 310 }, { id: 5, x: 610, y: 200 }],
+    edges: [[0,1,4],[0,2,2],[1,2,5],[1,3,10],[2,4,3],[3,5,11],[4,3,4],[4,5,5],[2,1,1]], source: 0 };
 }
 function gNegNoCycle() {
-  return {
-    nodes: [
-      { id: 0, x: 120, y: 200 }, { id: 1, x: 300, y: 110 }, { id: 2, x: 300, y: 300 },
-      { id: 3, x: 480, y: 110 }, { id: 4, x: 480, y: 300 }, { id: 5, x: 620, y: 200 },
-    ],
-    edges: [[0,1,6],[0,2,7],[1,2,8],[1,3,5],[1,4,-4],[2,3,-3],[2,4,9],[3,1,-2],[4,5,7],[3,5,2]],
-    source: 0,
-  };
+  return { nodes: [{ id: 0, x: 120, y: 200 }, { id: 1, x: 300, y: 110 }, { id: 2, x: 300, y: 300 }, { id: 3, x: 480, y: 110 }, { id: 4, x: 480, y: 300 }, { id: 5, x: 620, y: 200 }],
+    edges: [[0,1,6],[0,2,7],[1,2,8],[1,3,5],[1,4,-4],[2,3,-3],[2,4,9],[3,1,-2],[4,5,7],[3,5,2]], source: 0 };
 }
 function gNegCycle() {
-  return {
-    nodes: [
-      { id: 0, x: 140, y: 200 }, { id: 1, x: 330, y: 110 }, { id: 2, x: 330, y: 300 }, { id: 3, x: 540, y: 200 },
-    ],
-    edges: [[0,1,1],[1,2,-4],[2,3,2],[3,1,1],[2,1,2]],
-    source: 0,
-  };
+  return { nodes: [{ id: 0, x: 140, y: 200 }, { id: 1, x: 330, y: 110 }, { id: 2, x: 330, y: 300 }, { id: 3, x: 540, y: 200 }],
+    edges: [[0,1,1],[1,2,-4],[2,3,2],[3,1,1],[2,1,2]], source: 0 };
 }
-function gRandom(n = 9) {
-  const nodes = [], cx = 365, cy = 205, r = 145;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 - Math.PI / 2;
-    nodes.push({ id: i, x: cx + r * Math.cos(a) * 1.45, y: cy + r * Math.sin(a) });
-  }
-  const edges = [], seen = new Set();
-  for (let i = 0; i < n; i++) {
-    const out = 1 + Math.floor(Math.random() * 2);
-    for (let k = 0; k < out; k++) {
-      const j = Math.floor(Math.random() * n);
-      if (j !== i && !seen.has(i + "-" + j)) { seen.add(i + "-" + j); edges.push([i, j, 1 + Math.floor(Math.random() * 9)]); }
-    }
-  }
-  return { nodes, edges, source: 0 };
+function gLayered() {
+  // wider layered graph so the DMMSY band/batch behaviour is visible
+  return { nodes: [
+      { id: 0, x: 90, y: 205 },
+      { id: 1, x: 235, y: 110 }, { id: 2, x: 235, y: 205 }, { id: 3, x: 235, y: 300 },
+      { id: 4, x: 400, y: 110 }, { id: 5, x: 400, y: 205 }, { id: 6, x: 400, y: 300 },
+      { id: 7, x: 565, y: 150 }, { id: 8, x: 565, y: 260 }, { id: 9, x: 660, y: 205 }],
+    edges: [[0,1,3],[0,2,2],[0,3,4],[1,4,3],[2,4,4],[2,5,3],[3,5,2],[3,6,5],[4,7,4],[5,7,3],[5,8,4],[6,8,2],[7,9,3],[8,9,3],[2,1,1],[6,5,1]], source: 0 };
 }
 
-const adjOf = (g) => { const a = {}; g.nodes.forEach((n) => (a[n.id] = [])); g.edges.forEach(([u,v,w]) => a[u].push([v,w])); return a; };
+const adjOf = (g) => { const a = {}; g.nodes.forEach((n) => (a[n.id] = [])); g.edges.forEach(([u, v, w]) => a[u].push([v, w])); return a; };
 
 // ----------------------------- steppers -----------------------------
 function runDijkstra(g) {
   const adj = adjOf(g), dist = {}, settled = new Set(), frames = [];
   g.nodes.forEach((n) => (dist[n.id] = Infinity)); dist[g.source] = 0;
   const live = () => [...new Set(g.edges.filter(([a]) => !settled.has(a) && dist[a] < Infinity).map(([a]) => a))];
-  const snap = (note, edge, fr) => frames.push({ dist: { ...dist }, settled: new Set(settled), frontier: new Set(fr), pivots: new Set(), note, edge: edge || null });
+  const snap = (note, edge, fr, picked) => frames.push({ dist: { ...dist }, settled: new Set(settled), frontier: new Set(fr), pivots: new Set(), note, edge: edge || null, picked: picked ?? null });
   snap(`Start at node ${g.source}; every other distance is ∞.`, null, [g.source]);
   const pick = () => { let b = null, bd = Infinity; for (const n of g.nodes) if (!settled.has(n.id) && dist[n.id] < bd) { bd = dist[n.id]; b = n.id; } return b; };
   let u;
   while ((u = pick()) !== null) {
     settled.add(u);
-    snap(`Settle node ${u} (smallest tentative distance = ${dist[u]}). Its shortest path is now final.`, null, live());
-    for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; snap(`Relax ${u}→${v}: distance to ${v} = ${dist[v]}.`, [u, v], live()); }
+    snap(`Settle node ${u} (smallest tentative distance = ${dist[u]}). Its shortest path is now final.`, null, live(), u);
+    for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; snap(`Relax ${u}→${v}: distance to ${v} = ${dist[v]}.`, [u, v], live(), u); }
   }
   snap("Done — every reachable node has its final shortest distance.", null, []);
   return frames;
@@ -143,7 +94,7 @@ function runDijkstra(g) {
 function runJohnson(g) {
   const frames = [], n = g.nodes.length, h = {};
   g.nodes.forEach((nd) => (h[nd.id] = 0));
-  const snap = (note, edge, danger) => frames.push({ dist: { ...h }, settled: new Set(), frontier: new Set(), pivots: new Set(), note, edge: edge || null, danger: !!danger });
+  const snap = (note, edge, danger) => frames.push({ dist: { ...h }, settled: new Set(), frontier: new Set(), pivots: new Set(), note, edge: edge || null, danger: !!danger, phase: 1 });
   snap("Phase 1 — Bellman-Ford from a virtual source (h = 0 everywhere) to find vertex potentials.", null);
   for (let pass = 0; pass < n; pass++) {
     let changed = false;
@@ -157,13 +108,13 @@ function runJohnson(g) {
   const adj = adjOf(g), dist = {}, settled = new Set();
   g.nodes.forEach((nd) => (dist[nd.id] = Infinity)); dist[g.source] = 0;
   const live = () => g.nodes.filter((x) => !settled.has(x.id) && dist[x.id] < Infinity).map((x) => x.id);
-  const ds = (note, edge) => frames.push({ dist: { ...dist }, settled: new Set(settled), frontier: new Set(live()), pivots: new Set(), note, edge: edge || null });
+  const ds = (note, edge, picked) => frames.push({ dist: { ...dist }, settled: new Set(settled), frontier: new Set(live()), pivots: new Set(), note, edge: edge || null, phase: 2, picked: picked ?? null });
   ds(`Phase 2 — Dijkstra on the reweighted (now non-negative) graph from node ${g.source}.`, null);
   const pick = () => { let b = null, bd = Infinity; for (const nd of g.nodes) if (!settled.has(nd.id) && dist[nd.id] < bd) { bd = dist[nd.id]; b = nd.id; } return b; };
   let u;
   while ((u = pick()) !== null) {
-    settled.add(u); ds(`Settle node ${u} (true distance ${dist[u]}).`, null);
-    for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; ds(`Relax ${u}→${v}: distance to ${v} = ${dist[v]}.`, [u, v]); }
+    settled.add(u); ds(`Settle node ${u} (true distance ${dist[u]}).`, null, u);
+    for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; ds(`Relax ${u}→${v}: distance to ${v} = ${dist[v]}.`, [u, v], u); }
   }
   ds("Done — negative edges handled correctly; no negative cycle present.", null);
   return frames;
@@ -172,37 +123,42 @@ function runJohnson(g) {
 function runDMMSY(g) {
   const adj = adjOf(g), dist = {}, settled = new Set(), frames = [];
   g.nodes.forEach((n) => (dist[n.id] = Infinity)); dist[g.source] = 0;
-  const snap = (note, edge, fr, pv) => frames.push({ dist: { ...dist }, settled: new Set(settled), frontier: new Set(fr), pivots: new Set(pv || []), note, edge: edge || null });
-  snap(`Start at ${g.source}. Idea: don't fully sort the frontier — work in distance "bands".`, null, [g.source], []);
+  const snap = (note, edge, fr, pv, band) => frames.push({ dist: { ...dist }, settled: new Set(settled), frontier: new Set(fr), pivots: new Set(pv || []), note, edge: edge || null, band: band || null });
+  snap(`Start at ${g.source}. Idea: don't fully sort the frontier — work in distance "bands".`, null, [g.source], [], null);
   const span = Math.max(...g.edges.map(([,,w]) => w), 1);
   while (true) {
-    const live = g.nodes.filter((n) => !settled.has(n.id) && dist[n.id] < Infinity).map((n) => n.id);
-    if (live.length === 0) break;
-    const minD = Math.min(...live.map((id) => dist[id]));
-    const band = live.filter((id) => dist[id] <= minD + span * 0.6);
-    snap(`Form a frontier band near distance ${minD} (${band.length} node${band.length > 1 ? "s" : ""}) — no global sort needed.`, null, live, []);
-    const pivots = [...band].sort((a, b) => dist[a] - dist[b]).slice(0, Math.max(1, Math.ceil(band.length / 2)));
-    snap(`FindPivots → expand the ${pivots.length} most influential node${pivots.length > 1 ? "s" : ""} of the band first.`, null, live, pivots);
+    const liveNodes = g.nodes.filter((n) => !settled.has(n.id) && dist[n.id] < Infinity).map((n) => n.id);
+    if (liveNodes.length === 0) break;
+    const minD = Math.min(...liveNodes.map((id) => dist[id]));
+    const hi = minD + span * 0.6;
+    const band = { lo: minD, hi };
+    const inBand = liveNodes.filter((id) => dist[id] <= hi);
+    snap(`Form a frontier band for distances ${minD}–${Math.round(hi)} (${inBand.length} node${inBand.length > 1 ? "s" : ""}) — no global sort needed.`, null, liveNodes, [], band);
+    const pivots = [...inBand].sort((a, b) => dist[a] - dist[b]).slice(0, Math.max(1, Math.ceil(inBand.length / 2)));
+    snap(`FindPivots → settle the ${pivots.length} pivot${pivots.length > 1 ? "s" : ""} of this band as a batch.`, null, liveNodes, pivots, band);
     for (const u of pivots) {
       settled.add(u);
-      for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; snap(`Pivot ${u} relaxes ${u}→${v}: distance to ${v} = ${dist[v]}.`, [u, v], g.nodes.filter((n) => !settled.has(n.id) && dist[n.id] < Infinity).map((n) => n.id), pivots); }
+      for (const [v, w] of adj[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; snap(`Pivot ${u} relaxes ${u}→${v}: distance to ${v} = ${dist[v]}.`, [u, v], g.nodes.filter((n) => !settled.has(n.id) && dist[n.id] < Infinity).map((n) => n.id), pivots, band); }
     }
-    snap("Band settled. Revisit the remaining frontier in the next band.", null, g.nodes.filter((n) => !settled.has(n.id) && dist[n.id] < Infinity).map((n) => n.id), []);
+    snap("Band settled as a batch. Move to the next band.", null, g.nodes.filter((n) => !settled.has(n.id) && dist[n.id] < Infinity).map((n) => n.id), [], null);
   }
-  snap("Done — same exact distances as Dijkstra, reached by chunking the frontier instead of sorting it.", null, [], []);
+  snap("Done — same distances as Dijkstra, reached by settling bands instead of sorting.", null, [], [], null);
   return frames;
 }
 
 const ALGOS = {
-  dijkstra: { name: "Dijkstra", year: "1959", color: C.green, bound: "O(m + n log n)", needsNonNeg: true, fn: runDijkstra },
-  johnson: { name: "Johnson", year: "1977", color: C.amber, bound: "O(nm + n² log n)", needsNonNeg: false, fn: runJohnson },
-  dmmsy: { name: "DMMSY-style", year: "2025", color: C.violet, bound: "O(m log^(2/3) n)", needsNonNeg: true, fn: runDMMSY },
+  dijkstra: { name: "Dijkstra", year: "1959", color: C.green, bound: "O(m + n log n)", needsNonNeg: true, fn: runDijkstra,
+    diff: "Settles one node at a time — always the global nearest. The price is keeping the whole frontier sorted." },
+  johnson: { name: "Johnson", year: "1977", color: C.amber, bound: "O(mn)", needsNonNeg: false, fn: runJohnson,
+    diff: "Two phases: Bellman-Ford potentials neutralize negative edges, then Dijkstra runs safely." },
+  dmmsy: { name: "DMMSY-style", year: "2025", color: C.violet, bound: "O(m log^(2/3) n)", needsNonNeg: true, fn: runDMMSY,
+    diff: "Skips the global sort — finds pivots and settles whole distance bands as a batch." },
 };
 
 // ============================================================================
-//  GRAPH VIEW
+//  GRAPH VIEW (interactive: click node = set source, click weight = edit)
 // ============================================================================
-function GraphView({ graph, frame }) {
+function GraphView({ graph, frame, onPickSource, onPickEdge, selEdge }) {
   const dist = frame?.dist || {}, settled = frame?.settled || new Set(),
     frontier = frame?.frontier || new Set(), pivots = frame?.pivots || new Set(), active = frame?.edge;
   const src = graph.nodes.find((n) => n.id === graph.source);
@@ -217,7 +173,6 @@ function GraphView({ graph, frame }) {
         <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0 L0 0 0 26" fill="none" stroke="#e3e7ec" strokeWidth="1" /></pattern>
       </defs>
       <rect x="0" y="0" width="730" height="410" fill="url(#grid)" rx="10" />
-      {/* signature: faint distance-band contours from the source */}
       {src && [70, 130, 190, 250].map((r, i) => (
         <circle key={i} cx={src.x} cy={src.y} r={r} fill="none" stroke={C.live} strokeWidth="1" strokeDasharray="2 6" opacity={0.18} />
       ))}
@@ -227,25 +182,31 @@ function GraphView({ graph, frame }) {
         const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, r = 20;
         const x1 = a.x + ux * r, y1 = a.y + uy * r, x2 = b.x - ux * (r + 4), y2 = b.y - uy * (r + 4);
         const isA = active && active[0] === u && active[1] === v;
+        const sel = i === selEdge;
         const rev = graph.edges.some(([p, q]) => p === v && q === u), off = rev ? 9 : 0;
         const mx = (x1 + x2) / 2 - uy * off, my = (y1 + y2) / 2 + ux * off;
         return (
           <g key={i}>
             <path d={off ? `M${x1},${y1} Q${mx},${my} ${x2},${y2}` : `M${x1},${y1} L${x2},${y2}`} fill="none"
-              stroke={isA ? C.live : w < 0 ? C.danger : "#c2c9d2"} strokeWidth={isA ? 3.2 : 1.7} markerEnd={isA ? "url(#arA)" : "url(#ar)"} />
-            <text x={mx} y={my - 4} fontSize="12.5" fontFamily={mono} fontWeight="600" fill={w < 0 ? C.danger : C.faint}
-              textAnchor="middle" style={{ paintOrder: "stroke", stroke: "#eceef2", strokeWidth: 4 }}>{w}</text>
+              stroke={isA ? C.live : sel ? C.amber : w < 0 ? C.danger : "#c2c9d2"} strokeWidth={isA || sel ? 3.2 : 1.7} markerEnd={isA ? "url(#arA)" : "url(#ar)"} />
+            {sel && <circle cx={mx} cy={my - 2} r="11" fill={C.pick} stroke={C.amber} strokeWidth="1.4" />}
+            <text x={mx} y={my - 4} fontSize="12.5" fontFamily={mono} fontWeight="700" fill={w < 0 ? C.danger : sel ? C.amber : C.faint}
+              textAnchor="middle" style={{ paintOrder: "stroke", stroke: sel ? C.pick : "#eceef2", strokeWidth: 4 }}>{w}</text>
+            <circle cx={mx} cy={my - 2} r="13" fill="transparent" style={{ cursor: "pointer" }} onClick={() => onPickEdge && onPickEdge(i)}>
+              <title>Click to edit weight of edge {u}→{v}</title>
+            </circle>
           </g>
         );
       })}
       {graph.nodes.map((nd) => {
         const d = dist[nd.id], label = d === undefined || d === Infinity ? "∞" : d;
         return (
-          <g key={nd.id}>
+          <g key={nd.id} style={{ cursor: "pointer" }} onClick={() => onPickSource && onPickSource(nd.id)}>
             <circle cx={nd.x} cy={nd.y} r="20" fill={fill(nd.id)} stroke={C.ink} strokeWidth="1.7" />
             <text x={nd.x} y={nd.y + 5} fontSize="15" fontFamily={sans} fontWeight="700" fill={txt(nd.id)} textAnchor="middle">{nd.id}</text>
             <text x={nd.x} y={nd.y - 28} fontSize="13" fontFamily={mono} fontWeight="700" fill={C.ink} textAnchor="middle"
               style={{ paintOrder: "stroke", stroke: "#eceef2", strokeWidth: 4.5 }}>{label}</text>
+            <title>Click to set node {nd.id} as the source</title>
           </g>
         );
       })}
@@ -260,7 +221,78 @@ function Legend() {
   );
   return (
     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-      {item(C.ink, "source")}{item(C.green, "settled (final)")}{item(C.live, "frontier")}{item(C.violet, "pivot")}{item(C.danger, "negative edge")}
+      {item(C.ink, "source")}{item(C.green, "settled")}{item(C.live, "frontier")}{item(C.violet, "pivot / band")}{item(C.danger, "negative edge")}
+    </div>
+  );
+}
+
+// ----------------------------- per-algorithm inspector -----------------------------
+function Inspector({ algo, frame, graph }) {
+  const card = { background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" };
+  const cap = { fontFamily: sans, fontSize: 11.5, color: C.faint, margin: "6px 0 0", lineHeight: 1.45 };
+  const chip = (label, bg, fg, ring) => (
+    <span style={{ fontFamily: mono, fontSize: 12, padding: "3px 7px", borderRadius: 6, background: bg, color: fg || C.ink, border: `1px solid ${ring || C.line}` }}>{label}</span>
+  );
+  const settled = frame?.settled || new Set();
+  const dist = frame?.dist || {};
+  const queue = graph.nodes.filter((n) => !settled.has(n.id) && (dist[n.id] ?? Infinity) < Infinity)
+    .map((n) => ({ id: n.id, d: dist[n.id] })).sort((a, b) => a.d - b.d);
+
+  if (!frame) return <div style={card}><Eyebrow>Inspector</Eyebrow><p style={cap}>Press Run to see how this algorithm differs.</p></div>;
+
+  if (algo === "dijkstra") {
+    return (
+      <div style={card}>
+        <Eyebrow color={C.green}>Priority queue · sorted by distance</Eyebrow>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {queue.length === 0 ? <span style={cap}>Queue empty — all reachable nodes settled.</span> :
+            queue.map((q, idx) => chip(`${q.id}:${q.d}`, idx === 0 ? "#e3f3ec" : "#fff", idx === 0 ? C.green : C.ink, idx === 0 ? C.green : C.line))}
+        </div>
+        <p style={cap}>Dijkstra pops the smallest (highlighted) each step — keeping this list ordered is exactly the sorting cost the 2025 result removes.</p>
+      </div>
+    );
+  }
+  if (algo === "johnson") {
+    if (frame.phase === 1) {
+      return (
+        <div style={card}>
+          <Eyebrow color={C.amber}>Phase 1 · vertex potentials h(v)</Eyebrow>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {graph.nodes.map((n) => chip(`h(${n.id})=${dist[n.id] === Infinity ? "∞" : dist[n.id]}`, "#fff", C.ink))}
+          </div>
+          <p style={cap}>Bellman-Ford from a virtual source. These potentials reweight every edge to be ≥ 0 without changing which path is shortest.</p>
+        </div>
+      );
+    }
+    return (
+      <div style={card}>
+        <Eyebrow color={C.amber}>Phase 2 · Dijkstra on the reweighted graph</Eyebrow>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {queue.length === 0 ? <span style={cap}>Queue empty — done.</span> :
+            queue.map((q, idx) => chip(`${q.id}:${q.d}`, idx === 0 ? "#fbeedd" : "#fff", idx === 0 ? C.amber : C.ink, idx === 0 ? C.amber : C.line))}
+        </div>
+        <p style={cap}>All edges are now non-negative, so plain Dijkstra is safe — the negatives were handled in Phase 1.</p>
+      </div>
+    );
+  }
+  // dmmsy
+  const band = frame.band;
+  const pivots = frame.pivots || new Set();
+  const allD = graph.nodes.map((n) => dist[n.id]).filter((d) => d != null && d !== Infinity);
+  const maxD = Math.max(1, ...allD);
+  return (
+    <div style={card}>
+      <Eyebrow color={C.violet}>Distance band</Eyebrow>
+      <div style={{ position: "relative", height: 16, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 5, marginTop: 8, overflow: "hidden" }}>
+        {band && <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(band.lo / maxD) * 100}%`, width: `${Math.max(4, ((band.hi - band.lo) / maxD) * 100)}%`, background: "#efe6f6", borderLeft: `2px solid ${C.violet}`, borderRight: `2px solid ${C.violet}` }} />}
+        {graph.nodes.map((n) => { const d = dist[n.id]; if (d == null || d === Infinity) return null;
+          return <span key={n.id} style={{ position: "absolute", top: 3, left: `calc(${(d / maxD) * 100}% - 4px)`, width: 8, height: 8, borderRadius: 99, background: pivots.has(n.id) ? C.violet : settled.has(n.id) ? C.green : C.faint }} />; })}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+        {band ? <span style={{ fontFamily: mono, fontSize: 12, color: C.violet }}>band [{band.lo}–{Math.round(band.hi)}]</span> : <span style={cap}>between bands…</span>}
+        {[...pivots].length > 0 && <span style={{ fontFamily: mono, fontSize: 12, color: C.ink }}>pivots: {[...pivots].join(", ")}</span>}
+      </div>
+      <p style={cap}>Nodes in the violet band are settled together as a batch — never sorted against each other.</p>
     </div>
   );
 }
@@ -274,6 +306,7 @@ function Lab() {
   const [frames, setFrames] = useState([]);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [selEdge, setSelEdge] = useState(null);
   const timer = useRef(null);
 
   const compute = (g, a) => { const fr = ALGOS[a].fn(g); setFrames(fr); setStep(0); setPlaying(false); };
@@ -289,31 +322,52 @@ function Lab() {
   const negPresent = graph.edges.some(([,,w]) => w < 0);
   const a = ALGOS[algo];
 
-  const load = (gf) => { const ng = gf(); setGraph(ng); compute(ng, algo); };
+  const load = (gf) => { const ng = gf(); setSelEdge(null); setGraph(ng); compute(ng, algo); };
   const run = () => { compute(graph, algo); setTimeout(() => setPlaying(true), 40); };
+  const setSource = (id) => { const ng = { ...graph, source: id }; setGraph(ng); compute(ng, algo); };
+  const editWeight = (mut) => {
+    if (selEdge == null) return;
+    const e = graph.edges[selEdge]; const nw = mut(e[2]);
+    const edges = graph.edges.map((x, i) => i === selEdge ? [x[0], x[1], nw] : x);
+    const ng = { ...graph, edges }; setGraph(ng); compute(ng, algo);
+  };
 
-  const tab = (active, color) => ({
-    flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${active ? C.ink : C.line}`,
-    background: active ? color : "#fff", color: active ? "#fff" : C.ink, fontWeight: 600, fontSize: 13,
-    fontFamily: sans, cursor: "pointer", transition: "all .15s",
-  });
+  const tab = (active, color) => ({ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${active ? C.ink : C.line}`, background: active ? color : "#fff", color: active ? "#fff" : C.ink, fontWeight: 600, fontSize: 13, fontFamily: sans, cursor: "pointer", transition: "all .15s" });
   const sbtn = { padding: "7px 11px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, fontWeight: 600, fontSize: 12.5, fontFamily: sans, cursor: "pointer" };
   const card = { background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 };
+  const selData = selEdge != null ? graph.edges[selEdge] : null;
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.5fr) minmax(0,1fr)", gap: 16 }}>
       <div style={card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <Eyebrow>Interactive graph</Eyebrow>
-          <span style={{ fontFamily: sans, fontSize: 11.5, color: C.faint }}>distances update as the algorithm runs</span>
+          <span style={{ fontFamily: sans, fontSize: 11.5, color: C.faint }}>click a node = source · click a weight = edit</span>
         </div>
-        <GraphView graph={graph} frame={frame} />
+        <GraphView graph={graph} frame={frame} onPickSource={setSource} onPickEdge={setSelEdge} selEdge={selEdge} />
         <div style={{ marginTop: 8 }}><Legend /></div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+
+        {/* edit strip */}
+        <div style={{ marginTop: 10, minHeight: 36, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: selData ? C.pick : C.surfaceAlt, border: `1px solid ${selData ? C.amber : C.line}`, borderRadius: 8, padding: "7px 10px" }}>
+          {selData ? (
+            <>
+              <span style={{ fontFamily: sans, fontSize: 12.5, fontWeight: 600, color: C.ink }}>Edge {selData[0]}→{selData[1]}, weight</span>
+              <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700, color: selData[2] < 0 ? C.danger : C.ink, minWidth: 26, textAlign: "center" }}>{selData[2]}</span>
+              <button style={sbtn} onClick={() => editWeight((w) => w - 1)}>−1</button>
+              <button style={sbtn} onClick={() => editWeight((w) => w + 1)}>+1</button>
+              <button style={sbtn} onClick={() => editWeight((w) => -w)}>flip sign</button>
+              <button style={{ ...sbtn, marginLeft: "auto" }} onClick={() => setSelEdge(null)}>done</button>
+            </>
+          ) : (
+            <span style={{ fontFamily: sans, fontSize: 12, color: C.faint }}>Tip: click any edge weight to change it — make one negative and watch Dijkstra go wrong, then try Johnson.</span>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
           <button style={sbtn} onClick={() => load(gNonNeg)}>Non-negative</button>
           <button style={sbtn} onClick={() => load(gNegNoCycle)}>Negative (no cycle)</button>
           <button style={sbtn} onClick={() => load(gNegCycle)}>Negative cycle</button>
-          <button style={sbtn} onClick={() => load(() => gRandom(9))}>Random sparse</button>
+          <button style={sbtn} onClick={() => load(gLayered)}>Layered (10 nodes)</button>
         </div>
       </div>
 
@@ -324,12 +378,13 @@ function Lab() {
               <button key={k} onClick={() => { setAlgo(k); compute(graph, k); }} style={tab(algo === k, al.color)}>{al.name}</button>
             ))}
           </div>
-          <div style={{ fontFamily: sans, fontSize: 12.5, color: C.faint, marginBottom: 10 }}>
+          <div style={{ fontFamily: sans, fontSize: 12.5, color: C.faint, marginBottom: 8 }}>
             <strong style={{ color: a.color }}>{a.name} · {a.year}</strong>{"  "}<K color={C.faint}>{a.bound}</K>
           </div>
+          <p style={{ fontFamily: serif, fontSize: 13.5, lineHeight: 1.5, color: "#2a323c", margin: "0 0 10px" }}>{a.diff}</p>
           {a.needsNonNeg && negPresent && (
             <div style={{ background: "#fbeee6", border: `1px solid ${C.amber}`, color: "#8a4f12", padding: "8px 10px", borderRadius: 8, fontSize: 12.5, fontFamily: sans, marginBottom: 10 }}>
-              This graph has negative edges. {a.name} assumes weights ≥ 0, so its result may be wrong — switch to Johnson.
+              This graph has negative edges. {a.name} assumes weights ≥ 0, so its result may be wrong — switch to Johnson to handle them correctly.
             </div>
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -344,26 +399,14 @@ function Lab() {
           <div style={{ fontFamily: sans, fontSize: 12, color: C.faint }}>Step {frames.length ? step + 1 : 0} / {frames.length}</div>
         </div>
 
-        <div style={{ ...card, minHeight: 92 }}>
+        <div style={{ ...card, minHeight: 88 }}>
           <Eyebrow>What's happening</Eyebrow>
           <p style={{ margin: "8px 0 0", fontFamily: serif, fontSize: 15, lineHeight: 1.5, color: frame?.danger ? C.danger : C.ink, fontWeight: frame?.danger ? 700 : 400 }}>
             {frame ? frame.note : "Press Run to step through the algorithm."}
           </p>
         </div>
 
-        <div style={card}>
-          <Eyebrow>Distances from source</Eyebrow>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-            {graph.nodes.map((nd) => {
-              const d = frame?.dist?.[nd.id];
-              return (
-                <span key={nd.id} style={{ fontFamily: mono, fontSize: 12.5, padding: "4px 8px", borderRadius: 6, background: C.surfaceAlt, border: `1px solid ${C.line}` }}>
-                  {nd.id}: <strong>{d === undefined || d === Infinity ? "∞" : d}</strong>
-                </span>
-              );
-            })}
-          </div>
-        </div>
+        <Inspector algo={algo} frame={frame} graph={graph} />
       </div>
     </div>
   );
@@ -400,7 +443,7 @@ function Story() {
         <p style={p}>Grows a set of "settled" nodes outward from the source, always settling the nearest unsettled node next. With a Fibonacci heap it runs in <K>O(m + n log n)</K>. Every step extracts the global minimum — effectively sorting nodes by distance — and it requires all weights ≥ 0.</p>
         <div style={{ height: 10 }} />
         {led("nonneg", "2025", "DMMSY — breaking the sorting barrier")}
-        <p style={p}>Duan, Mao, Mao, Shu and Yin gave a deterministic <K>O(m log^(2/3) n)</K> algorithm (STOC 2025), the first to beat Dijkstra on sparse directed graphs. Instead of fully ordering the frontier, their BMSSP procedure works in distance "bands": a short Bellman-Ford-style scout (FindPivots) finds a few influential "pivot" nodes, the graph is split into distance-bounded sub-problems, and large batches of vertices are settled at once — no global sort. (This is the idea the Lab's third algorithm illustrates.)</p>
+        <p style={p}>Duan, Mao, Mao, Shu and Yin gave a deterministic <K>O(m log^(2/3) n)</K> algorithm (STOC 2025), the first to beat Dijkstra on sparse directed graphs. Instead of fully ordering the frontier, their BMSSP procedure works in distance "bands": a short Bellman-Ford-style scout (FindPivots) finds a few influential "pivot" nodes, the graph is split into distance-bounded sub-problems, and batches of vertices are settled at once — no global sort. (This is the idea the Lab's third algorithm illustrates.)</p>
         <div style={{ height: 10 }} />
         {led("nonneg", "2026", "Even faster")}
         <p style={p}>Duan, Mao, Shu and Yin followed up with <K>O(m √(log n) + √(mn log n log log n))</K>, simplifying to <K>O(m √(log n log log n))</K> on sparse graphs — tightening the 2025 bound further.</p>
@@ -425,7 +468,7 @@ function Story() {
       <div style={{ ...card, borderLeft: `4px solid ${C.violet}` }}>
         <TrackTag track="realneg" />
         <h3 style={{ fontFamily: serif, fontSize: 19, margin: "8px 0 12px" }}>Negative real weights — the hardest case</h3>
-        <p style={{ ...p, marginBottom: 10 }}>Bit-scaling needs integers, so real weights stayed at Bellman-Ford's <K>O(mn)</K> for 70 years — until a structural idea broke it, then a rapid cascade of refinements.</p>
+        <p style={{ ...p, marginBottom: 10 }}>Bit-scaling needs integers, so real weights stayed at Bellman-Ford's <K>O(mn)</K> for 66 years — until a structural idea broke it, then a rapid cascade of refinements.</p>
         {led("realneg", "2024", "Fineman — hop reduction")}
         <p style={p}>Fineman reached randomized <K>Õ(mn^(8/9))</K> (STOC 2024) — the first improvement on <K>O(mn)</K>. He samples "negative sandwiches" of negative vertices, uses betweenness reduction to make them "r-remote," and inserts shortcut edges to compress long negative paths.</p>
         <div style={{ height: 10 }} />
@@ -446,9 +489,9 @@ function Story() {
       <div style={{ ...card, marginBottom: 0, marginTop: 12 }}>
         <Eyebrow color={C.ink}>Sources</Eyebrow>
         <p style={{ fontFamily: sans, fontSize: 12, color: C.faint, lineHeight: 1.6, margin: "8px 0 0" }}>
-          Duan–Mao–Mao–Shu–Yin (STOC 2025, arXiv:2504.17033); Duan–Mao–Shu–Yin (2026, arXiv:2602.07868); Bernstein–Nanongkai–Wulff-Nilsen (FOCS 2022, arXiv:2203.03456);
-          Bringmann–Cassis–Fischer (FOCS 2023, arXiv:2304.05279); J. Li (STOC 2026, arXiv:2511.07859); Fineman (STOC 2024, arXiv:2311.02520);
-          Huang–Jin–Quanrud (SODA 2025, arXiv:2407.04872; SODA 2026, arXiv:2506.00428); Quanrud–Tajkhorshid (arXiv:2511.18253);
+          Johnson (JACM 1977, 24(1):1–13, doi:10.1145/321992.321993); Duan–Mao–Mao–Shu–Yin (STOC 2025, arXiv:2504.17033); Duan–Mao–Shu–Yin (2026, arXiv:2602.07868);
+          Bernstein–Nanongkai–Wulff-Nilsen (FOCS 2022, arXiv:2203.03456); Bringmann–Cassis–Fischer (FOCS 2023, arXiv:2304.05279); J. Li (STOC 2026, arXiv:2511.07859);
+          Fineman (STOC 2024, arXiv:2311.02520); Huang–Jin–Quanrud (SODA 2025, arXiv:2407.04872; SODA 2026, arXiv:2506.00428); Quanrud–Tajkhorshid (arXiv:2511.18253);
           Li–Li–Rao–Zhang (arXiv:2511.12714); Li–Li–Zhang (arXiv:2602.16153); Khanna–Song (arXiv:2602.16638).
         </p>
       </div>
@@ -464,7 +507,7 @@ const TABLE = [
   ["Duan–Mao–Shu–Yin", "2026", "nonneg", "O(m√(log n)+√(mn log n log log n))", "Det.", "Theory"],
   ["Bernstein–Nanongkai–W-N", "FOCS 2022", "intneg", "O(m log⁸ n log W)", "Rand.", "Theory"],
   ["Bringmann–Cassis–Fischer", "FOCS 2023", "intneg", "O(m log² n log(nW) log log n)", "Rand.", "Theory"],
-  ["Jason Li", "STOC 2026", "intneg", "near-linear", "Det.", "Theory"],
+  ["Jason Li", "STOC 2026", "intneg", "near-linear time", "Det.", "Theory"],
   ["Fineman", "STOC 2024", "realneg", "Õ(mn^(8/9))", "Rand.", "Theory"],
   ["Huang–Jin–Quanrud", "SODA 2025", "realneg", "Õ(mn^(4/5))", "Rand.", "Theory"],
   ["Huang–Jin–Quanrud", "SODA 2026", "realneg", "Õ(mn^(3/4)+m^(4/5)n)", "Rand.", "Theory"],
@@ -503,24 +546,27 @@ function ComparisonTable({ dark }) {
 }
 
 // ============================================================================
-//  SLIDES
+//  SLIDES  (container-query units so text scales to the slide, not the window)
 // ============================================================================
-const AMBER_D = "#e6a44d";
 function Slides() {
   const slides = buildSlides();
   const [i, setI] = useState(0);
   const go = (d) => setI((x) => Math.max(0, Math.min(slides.length - 1, x + d)));
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "ArrowRight" || e.key === "PageDown") go(1); if (e.key === "ArrowLeft" || e.key === "PageUp") go(-1); };
+    const onKey = (e) => {
+      if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+      if (e.key === "ArrowRight" || e.key === "PageDown") go(1);
+      if (e.key === "ArrowLeft" || e.key === "PageUp") go(-1);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [slides.length]);
 
   return (
     <div>
-      <div style={{ position: "relative", background: D.bg, borderRadius: 14, border: `1px solid ${D.line}`, aspectRatio: "16 / 9", overflow: "hidden", color: D.text }}>
+      <div style={{ position: "relative", background: D.bg, borderRadius: 14, border: `1px solid ${D.line}`, aspectRatio: "16 / 9", overflow: "hidden", color: D.text, containerType: "inline-size" }}>
         {slides[i]}
-        <div style={{ position: "absolute", bottom: 14, left: 22, fontFamily: mono, fontSize: 12, color: D.faint }}>
+        <div style={{ position: "absolute", bottom: "2.6cqw", left: "3.4cqw", fontFamily: mono, fontSize: "clamp(10px,1.4cqw,13px)", color: D.faint }}>
           {String(i + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}
         </div>
       </div>
@@ -528,8 +574,7 @@ function Slides() {
         <button onClick={() => go(-1)} disabled={i === 0} style={navBtn(i === 0)}>‹ Back</button>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
           {slides.map((_, k) => (
-            <button key={k} onClick={() => setI(k)} aria-label={`Slide ${k + 1}`}
-              style={{ width: 8, height: 8, borderRadius: 99, border: "none", cursor: "pointer", padding: 0, background: k === i ? C.live : C.line }} />
+            <button key={k} onClick={() => setI(k)} aria-label={`Slide ${k + 1}`} style={{ width: 8, height: 8, borderRadius: 99, border: "none", cursor: "pointer", padding: 0, background: k === i ? C.live : C.line }} />
           ))}
         </div>
         <button onClick={() => go(1)} disabled={i === slides.length - 1} style={navBtn(i === slides.length - 1)}>Next ›</button>
@@ -540,7 +585,6 @@ function Slides() {
 }
 const navBtn = (disabled) => ({ padding: "9px 16px", borderRadius: 9, border: `1px solid ${C.line}`, background: disabled ? C.surfaceAlt : "#fff", color: disabled ? C.faint : C.ink, fontFamily: sans, fontWeight: 600, fontSize: 13, cursor: disabled ? "default" : "pointer" });
 
-// slide frame + helpers
 function SlideFrame({ children, accent }) {
   return (
     <div style={{ position: "absolute", inset: 0, padding: "clamp(20px,4.5%,52px)", display: "flex", flexDirection: "column" }}>
@@ -549,24 +593,20 @@ function SlideFrame({ children, accent }) {
     </div>
   );
 }
-const sEye = (color) => ({ fontFamily: sans, fontSize: "clamp(10px,1.3vw,13px)", letterSpacing: 3, textTransform: "uppercase", color: color || D.faint, fontWeight: 700, marginBottom: "1.4vh" });
-const sH = { fontFamily: serif, fontSize: "clamp(20px,3.6vw,40px)", lineHeight: 1.1, margin: 0, color: D.text, fontWeight: 700 };
-const sBody = { fontFamily: serif, fontSize: "clamp(13px,1.85vw,20px)", lineHeight: 1.5, color: "#d6deea", margin: 0 };
+const sEye = (color) => ({ fontFamily: sans, fontSize: "clamp(9px,1.45cqw,13px)", letterSpacing: 3, textTransform: "uppercase", color: color || D.faint, fontWeight: 700, marginBottom: "1.6cqw" });
+const sH = { fontFamily: serif, fontSize: "clamp(18px,4.2cqw,38px)", lineHeight: 1.12, margin: 0, color: D.text, fontWeight: 700 };
+const sBody = { fontFamily: serif, fontSize: "clamp(11px,2.15cqw,19px)", lineHeight: 1.5, color: "#d6deea", margin: 0 };
 const sK = (color) => ({ fontFamily: mono, fontSize: "0.92em", color: color || D.live, whiteSpace: "nowrap" });
-function dTag(track) {
-  const map = { nonneg: D.green, intneg: AMBER_D, realneg: D.violet };
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: sans, fontSize: "clamp(11px,1.4vw,15px)", fontWeight: 600, color: map[track] }}>
-      <span style={{ width: 10, height: 10, borderRadius: 2, background: map[track] }} />{TRACK[track].label}
-    </span>
-  );
-}
 
 function buildSlides() {
   const map = { nonneg: D.green, intneg: AMBER_D, realneg: D.violet };
-  // bullet helper
+  const dTag = (track) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontFamily: sans, fontSize: "clamp(11px,1.5cqw,15px)", fontWeight: 600, color: map[track] }}>
+      <span style={{ width: 10, height: 10, borderRadius: 2, background: map[track] }} />{TRACK[track].label}
+    </span>
+  );
   const Bul = ({ items, color }) => (
-    <ul style={{ margin: "2.2vh 0 0", paddingLeft: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "1.6vh" }}>
+    <ul style={{ margin: "2.4cqw 0 0", paddingLeft: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "1.8cqw" }}>
       {items.map((it, k) => (
         <li key={k} style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
           <span style={{ flexShrink: 0, width: 7, height: 7, borderRadius: 99, background: color || C.live, transform: "translateY(-2px)" }} />
@@ -586,12 +626,13 @@ function buildSlides() {
       </svg>
       <div style={{ position: "relative", margin: "auto 0" }}>
         <div style={sEye(D.live)}>Single-source shortest paths · 2022–2026</div>
-        <h1 style={{ ...sH, fontSize: "clamp(26px,5.2vw,58px)", maxWidth: "16em" }}>From Dijkstra to the<br />sorting-barrier break</h1>
-        <p style={{ ...sBody, marginTop: "2.4vh", maxWidth: "30em", color: D.faint }}>
+        <h1 style={{ ...sH, fontSize: "clamp(22px,5.4cqw,54px)", maxWidth: "16em" }}>From Dijkstra to the<br />sorting-barrier break</h1>
+        <p style={{ ...sBody, marginTop: "2.6cqw", maxWidth: "30em", color: D.faint }}>
           How a 66-year-old speed limit fell — and the cascade of results that followed for negative-weight graphs.
         </p>
-        <div style={{ display: "flex", gap: 18, marginTop: "3vh", flexWrap: "wrap" }}>
-          {dTag("nonneg")}{dTag("intneg")}{dTag("realneg")}
+        <div style={{ display: "flex", gap: 18, marginTop: "3.2cqw", flexWrap: "wrap" }}>{dTag("nonneg")}{dTag("intneg")}{dTag("realneg")}</div>
+        <div style={{ marginTop: "3.4cqw", fontFamily: sans, fontSize: "clamp(11px,1.6cqw,16px)", color: D.text }}>
+          <strong>Cornelia Ärlerud</strong> <span style={{ color: D.faint }}>· National Enterprises AB — internship · GenAI literacy task</span>
         </div>
       </div>
     </SlideFrame>,
@@ -600,27 +641,27 @@ function buildSlides() {
     <SlideFrame key="prob" accent={D.live}>
       <div style={sEye()}>The problem</div>
       <h2 style={sH}>Shortest paths, and the "sorting barrier"</h2>
-      <div style={{ marginTop: "3vh", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4%", alignItems: "start" }}>
+      <div style={{ marginTop: "3.2cqw", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4%", alignItems: "start" }}>
         <p style={sBody}>Given a directed graph and a source <K>s</K>, find the shortest distance from <K>s</K> to every vertex. Dijkstra solves it in <span style={sK()}>O(m + n log n)</span>.</p>
         <p style={sBody}>That <span style={sK()}>log n</span> is the cost of keeping the frontier sorted. Sorting <K>n</K> items needs <span style={sK()}>Ω(n log n)</span> — so this looked like a natural floor for sparse graphs.</p>
       </div>
-      <p style={{ ...sBody, marginTop: "3vh", color: D.faint, fontStyle: "italic" }}>The question for 60+ years: do we really have to sort?</p>
+      <p style={{ ...sBody, marginTop: "3.2cqw", color: D.faint, fontStyle: "italic" }}>The question for 60+ years: do we really have to sort?</p>
     </SlideFrame>,
 
     // 3 — classical baseline
     <SlideFrame key="base" accent={D.green}>
       <div style={sEye()}>The classical baseline</div>
       <h2 style={sH}>Three ideas that held for decades</h2>
-      <div style={{ marginTop: "3vh", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "3%" }}>
+      <div style={{ marginTop: "3.2cqw", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "3%" }}>
         {[
           ["Dijkstra · 1959", "O(m + n log n)", "Greedy: settle the nearest node, relax its edges. Needs weights ≥ 0.", D.green],
           ["Bellman-Ford · 1958", "O(mn)", "Relax all edges n−1 times. Handles negatives, but quadratic.", AMBER_D],
-          ["Johnson · 1977", "potentials", "Reweight w′ = w + h(u) − h(v) ≥ 0, then run Dijkstra. The bridge.", AMBER_D],
+          ["Johnson · 1977", "O(mn)", "Reweight w′ = w + h(u) − h(v) ≥ 0, then Dijkstra. The bridge.", AMBER_D],
         ].map((c, k) => (
-          <div key={k} style={{ background: D.panel, border: `1px solid ${D.line}`, borderRadius: 12, padding: "2.4vh 1.4vw" }}>
-            <div style={{ fontFamily: sans, fontWeight: 700, fontSize: "clamp(12px,1.5vw,16px)", color: c[3] }}>{c[0]}</div>
-            <div style={{ ...sK(c[3]), display: "block", margin: "1vh 0 1.4vh", fontSize: "clamp(12px,1.5vw,17px)" }}>{c[1]}</div>
-            <div style={{ ...sBody, fontSize: "clamp(11px,1.5vw,16px)" }}>{c[2]}</div>
+          <div key={k} style={{ background: D.panel, border: `1px solid ${D.line}`, borderRadius: 12, padding: "2.6cqw 1.6cqw" }}>
+            <div style={{ fontFamily: sans, fontWeight: 700, fontSize: "clamp(12px,1.8cqw,16px)", color: c[3] }}>{c[0]}</div>
+            <div style={{ ...sK(c[3]), display: "block", margin: "1.1cqw 0 1.5cqw", fontSize: "clamp(11px,1.7cqw,16px)" }}>{c[1]}</div>
+            <div style={{ ...sBody, fontSize: "clamp(11px,1.75cqw,16px)" }}>{c[2]}</div>
           </div>
         ))}
       </div>
@@ -628,9 +669,9 @@ function buildSlides() {
 
     // 4 — 2025 breakthrough
     <SlideFrame key="dmmsy" accent={D.green}>
-      <div style={{ marginBottom: "1.4vh" }}>{dTag("nonneg")}</div>
+      <div style={{ marginBottom: "1.6cqw" }}>{dTag("nonneg")}</div>
       <h2 style={sH}>2025: the barrier breaks</h2>
-      <p style={{ ...sBody, marginTop: "2vh" }}>
+      <p style={{ ...sBody, marginTop: "2.2cqw" }}>
         Duan, Mao, Mao, Shu and Yin — <strong style={{ color: D.text }}>"Breaking the Sorting Barrier"</strong> (STOC 2025) — give a deterministic
         <span style={sK(D.green)}>  O(m log^(2/3) n)</span> algorithm. The first proof that Dijkstra is <em>not</em> optimal for shortest paths on sparse graphs.
       </p>
@@ -645,30 +686,28 @@ function buildSlides() {
     <SlideFrame key="bmssp" accent={D.green}>
       <div style={sEye()}>How it works · BMSSP</div>
       <h2 style={sH}>Pivots instead of sorting</h2>
-      <div style={{ marginTop: "2.6vh", display: "flex", flexDirection: "column", gap: "1.8vh" }}>
+      <div style={{ marginTop: "2.8cqw", display: "flex", flexDirection: "column", gap: "2cqw" }}>
         {[
           ["Band the frontier", "Look only at vertices within a distance window of the current minimum — no total order required."],
           ["Find pivots", "A few shallow Bellman-Ford rounds reveal a small set of \"pivot\" nodes that every long path must pass through."],
           ["Settle in batches", "Split into distance-bounded sub-problems and settle whole groups at once, then recurse."],
         ].map((s, k) => (
           <div key={k} style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
-            <span style={{ fontFamily: mono, fontSize: "clamp(14px,2vw,22px)", color: D.green, fontWeight: 700, flexShrink: 0 }}>{k + 1}</span>
-            <div><strong style={{ fontFamily: sans, color: D.text, fontSize: "clamp(13px,1.7vw,18px)" }}>{s[0]}</strong>
-              <div style={{ ...sBody, marginTop: "0.5vh", fontSize: "clamp(11px,1.55vw,16px)" }}>{s[1]}</div></div>
+            <span style={{ fontFamily: mono, fontSize: "clamp(14px,2.4cqw,22px)", color: D.green, fontWeight: 700, flexShrink: 0 }}>{k + 1}</span>
+            <div><strong style={{ fontFamily: sans, color: D.text, fontSize: "clamp(13px,2cqw,18px)" }}>{s[0]}</strong>
+              <div style={{ ...sBody, marginTop: "0.6cqw", fontSize: "clamp(11px,1.8cqw,16px)" }}>{s[1]}</div></div>
           </div>
         ))}
       </div>
-      <p style={{ ...sBody, marginTop: "2.4vh", color: D.faint, fontStyle: "italic" }}>Same distances as Dijkstra — reached without ever sorting the frontier.</p>
+      <p style={{ ...sBody, marginTop: "2.6cqw", color: D.faint, fontStyle: "italic" }}>Same distances as Dijkstra — reached without ever sorting the frontier.</p>
     </SlideFrame>,
 
     // 6 — 2026 faster
     <SlideFrame key="2026" accent={D.green}>
-      <div style={{ marginBottom: "1.4vh" }}>{dTag("nonneg")}</div>
+      <div style={{ marginBottom: "1.6cqw" }}>{dTag("nonneg")}</div>
       <h2 style={sH}>2026: faster still</h2>
-      <p style={{ ...sBody, marginTop: "2.4vh", maxWidth: "26em" }}>
-        Duan, Mao, Shu and Yin push the bound to
-      </p>
-      <div style={{ fontFamily: mono, fontSize: "clamp(15px,2.6vw,30px)", color: D.green, margin: "2.4vh 0", fontWeight: 600 }}>
+      <p style={{ ...sBody, marginTop: "2.6cqw", maxWidth: "26em" }}>Duan, Mao, Shu and Yin push the bound to</p>
+      <div style={{ fontFamily: mono, fontSize: "clamp(15px,3cqw,30px)", color: D.green, margin: "2.6cqw 0", fontWeight: 600 }}>
         O(m √(log n) + √(mn log n log log n))
       </div>
       <p style={sBody}>which simplifies to <span style={sK(D.green)}>O(m √(log n log log n))</span> on sparse graphs — a clean improvement on the 2025 result, still deterministic.</p>
@@ -678,16 +717,16 @@ function buildSlides() {
     <SlideFrame key="tracks" accent={D.live}>
       <div style={sEye()}>The shape of the field</div>
       <h2 style={sH}>One problem, three tracks</h2>
-      <p style={{ ...sBody, marginTop: "2vh" }}>What's hard depends entirely on which edge weights you allow:</p>
-      <div style={{ marginTop: "2.6vh", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "3%" }}>
+      <p style={{ ...sBody, marginTop: "2.2cqw" }}>What's hard depends entirely on which edge weights you allow:</p>
+      <div style={{ marginTop: "2.8cqw", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "3%" }}>
         {[
           ["nonneg", "Non-negative", "Dijkstra's turf. The 2025/26 sorting-barrier results live here."],
           ["intneg", "Integer negative", "Johnson + bit-scaling. Near-linear since 2022; deterministic in 2026."],
-          ["realneg", "Real negative", "The hardest. Stuck at O(mn) for 70 years, then broken in 2024."],
+          ["realneg", "Real negative", "The hardest. Stuck at O(mn) for 66 years, then broken in 2024."],
         ].map((c, k) => (
-          <div key={k} style={{ background: D.panel, border: `1px solid ${map[c[0]]}55`, borderRadius: 12, padding: "2.4vh 1.4vw", borderTop: `3px solid ${map[c[0]]}` }}>
-            <div style={{ fontFamily: sans, fontWeight: 700, color: map[c[0]], fontSize: "clamp(13px,1.7vw,18px)" }}>{c[1]}</div>
-            <div style={{ ...sBody, marginTop: "1.2vh", fontSize: "clamp(11px,1.5vw,16px)" }}>{c[2]}</div>
+          <div key={k} style={{ background: D.panel, border: `1px solid ${map[c[0]]}55`, borderRadius: 12, padding: "2.6cqw 1.6cqw", borderTop: `3px solid ${map[c[0]]}` }}>
+            <div style={{ fontFamily: sans, fontWeight: 700, color: map[c[0]], fontSize: "clamp(13px,2cqw,18px)" }}>{c[1]}</div>
+            <div style={{ ...sBody, marginTop: "1.4cqw", fontSize: "clamp(11px,1.75cqw,16px)" }}>{c[2]}</div>
           </div>
         ))}
       </div>
@@ -695,7 +734,7 @@ function buildSlides() {
 
     // 8 — Track A integer
     <SlideFrame key="trackA" accent={AMBER_D}>
-      <div style={{ marginBottom: "1.4vh" }}>{dTag("intneg")}</div>
+      <div style={{ marginBottom: "1.6cqw" }}>{dTag("intneg")}</div>
       <h2 style={sH}>Negative integer weights</h2>
       <Bul color={AMBER_D} items={[
         <><strong style={{ color: D.text }}>BNW 2022</strong> — randomized <span style={sK(AMBER_D)}>O(m log⁸ n log W)</span>: first near-linear, via bit-scaling + low-diameter decomposition.</>,
@@ -706,10 +745,10 @@ function buildSlides() {
 
     // 9 — Track B real
     <SlideFrame key="trackB" accent={D.violet}>
-      <div style={{ marginBottom: "1.4vh" }}>{dTag("realneg")}</div>
+      <div style={{ marginBottom: "1.6cqw" }}>{dTag("realneg")}</div>
       <h2 style={sH}>Negative real weights: the cascade</h2>
       <Bul color={D.violet} items={[
-        <><strong style={{ color: D.text }}>Fineman 2024</strong> — <span style={sK(D.violet)}>Õ(mn^(8/9))</span>: first crack in the 70-year <span style={sK(D.violet)}>O(mn)</span> wall, via hop reduction.</>,
+        <><strong style={{ color: D.text }}>Fineman 2024</strong> — <span style={sK(D.violet)}>Õ(mn^(8/9))</span>: first crack in the 66-year <span style={sK(D.violet)}>O(mn)</span> wall, via hop reduction.</>,
         <><strong style={{ color: D.text }}>Huang–Jin–Quanrud</strong> — <span style={sK(D.violet)}>Õ(mn^(4/5))</span> (2025) → <span style={sK(D.violet)}>Õ(mn^(3/4)+m^(4/5)n)</span> (2026).</>,
         <><strong style={{ color: D.text }}>Quanrud–Tajkhorshid</strong> — <span style={sK(D.violet)}>O(mn^0.7193)</span> for denser graphs, via sparsification.</>,
         <><strong style={{ color: D.text }}>Li–Li–Zhang</strong> and <strong style={{ color: D.text }}>Khanna–Song</strong> — both reach <span style={sK(D.violet)}>n^(2+o(1))</span>, essentially optimal for dense graphs.</>,
@@ -720,10 +759,8 @@ function buildSlides() {
     <SlideFrame key="thread" accent={D.live}>
       <div style={sEye()}>The connecting idea</div>
       <h2 style={sH}>Johnson, 1977, is still inside all of it</h2>
-      <p style={{ ...sBody, marginTop: "2.6vh", maxWidth: "30em" }}>
-        Every negative-weight result — from 2022 to 2026 — still uses Johnson's price functions to make edges non-negative:
-      </p>
-      <div style={{ fontFamily: mono, fontSize: "clamp(16px,2.8vw,32px)", color: D.live, margin: "3vh 0", fontWeight: 600 }}>
+      <p style={{ ...sBody, marginTop: "2.8cqw", maxWidth: "30em" }}>Every negative-weight result — from 2022 to 2026 — still uses Johnson's price functions to make edges non-negative:</p>
+      <div style={{ fontFamily: mono, fontSize: "clamp(16px,3.2cqw,32px)", color: D.live, margin: "3.2cqw 0", fontWeight: 600 }}>
         w′(u,v) = w(u,v) + φ(u) − φ(v)
       </div>
       <p style={sBody}>The breakthroughs don't replace Johnson — they compute his potentials <em>faster</em>. A 49-year-old idea, still load-bearing.</p>
@@ -732,7 +769,7 @@ function buildSlides() {
     // 11 — table
     <SlideFrame key="table" accent={D.live}>
       <div style={sEye()}>The whole landscape</div>
-      <h2 style={{ ...sH, fontSize: "clamp(18px,2.8vw,30px)", marginBottom: "1.4vh" }}>Fourteen results, three tracks</h2>
+      <h2 style={{ ...sH, fontSize: "clamp(16px,3cqw,28px)", marginBottom: "1.4cqw" }}>The results, three tracks</h2>
       <div style={{ flex: 1, overflow: "auto" }}><ComparisonTable dark /></div>
     </SlideFrame>,
 
@@ -740,17 +777,17 @@ function buildSlides() {
     <SlideFrame key="tvp" accent={AMBER_D}>
       <div style={sEye()}>A caveat worth saying out loud</div>
       <h2 style={sH}>Theory ≠ practice (yet)</h2>
-      <div style={{ marginTop: "3vh", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5%" }}>
+      <div style={{ marginTop: "3.2cqw", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5%" }}>
         <div>
-          <div style={{ fontFamily: sans, fontWeight: 700, color: D.green, marginBottom: "1.2vh", fontSize: "clamp(13px,1.7vw,18px)" }}>Used in production</div>
+          <div style={{ fontFamily: sans, fontWeight: 700, color: D.green, marginBottom: "1.4cqw", fontSize: "clamp(13px,2cqw,18px)" }}>Used in production</div>
           <p style={sBody}>Dijkstra and Johnson. Simple, low constants, fast on real graphs.</p>
         </div>
         <div>
-          <div style={{ fontFamily: sans, fontWeight: 700, color: D.violet, marginBottom: "1.2vh", fontSize: "clamp(13px,1.7vw,18px)" }}>Theoretical milestones</div>
+          <div style={{ fontFamily: sans, fontWeight: 700, color: D.violet, marginBottom: "1.4cqw", fontSize: "clamp(13px,2cqw,18px)" }}>Theoretical milestones</div>
           <p style={sBody}>The 2022–2026 results. Large constants and heavy machinery (recursion, spanning forests, padding) make them slower in practice — for now.</p>
         </div>
       </div>
-      <p style={{ ...sBody, marginTop: "3vh", color: D.faint, fontStyle: "italic" }}>Their value is showing what's possible — and the techniques may yet become practical.</p>
+      <p style={{ ...sBody, marginTop: "3.2cqw", color: D.faint, fontStyle: "italic" }}>Their value is showing what's possible — and the techniques may yet become practical.</p>
     </SlideFrame>,
 
     // 13 — takeaways
@@ -760,7 +797,7 @@ function buildSlides() {
       <Bul items={[
         <><strong style={{ color: D.text }}>The sorting barrier fell.</strong> Total ordering was a luxury, not a necessity — pivots + bands beat it (DMMSY 2025).</>,
         <><strong style={{ color: D.text }}>Integers enable scaling.</strong> Bit-scaling + decomposition gives near-linear, now even deterministic, negative-weight SSSP.</>,
-        <><strong style={{ color: D.text }}>Real weights needed structure.</strong> Shortcutting and hop reduction broke the 70-year <span style={sK()}>O(mn)</span> wall, down to <span style={sK()}>n^(2+o(1))</span> for dense graphs.</>,
+        <><strong style={{ color: D.text }}>Real weights needed structure.</strong> Shortcutting and hop reduction broke the 66-year <span style={sK()}>O(mn)</span> wall, down to <span style={sK()}>n^(2+o(1))</span> for dense graphs.</>,
         <><strong style={{ color: D.text }}>Johnson endures.</strong> Every modern negative-weight result still rests on his 1977 potentials.</>,
       ]} />
     </SlideFrame>,
@@ -772,7 +809,7 @@ function buildSlides() {
       <Bul items={[
         <><strong style={{ color: D.text }}>Research:</strong> Gemini Deep Research gathered the papers, bounds and timeline across 2022–2026.</>,
         <><strong style={{ color: D.text }}>Demo & deck:</strong> built with Claude — the interactive Lab, this slide deck, and the written story.</>,
-        <><strong style={{ color: D.text }}>Verification:</strong> every citation was checked against the primary arXiv / STOC / FOCS / SODA source. This caught real errors — e.g. two distinct papers had been merged and an author list was wrong.</>,
+        <><strong style={{ color: D.text }}>Verification:</strong> every citation checked against the primary source (arXiv / STOC / FOCS / SODA; Johnson 1977 in JACM). This caught real errors — two distinct papers merged into one, and a wrong author list.</>,
         <><strong style={{ color: D.text }}>Lesson:</strong> generative tools are excellent drafters but unreliable on exact citations — author lists and complexity bounds must be verified by hand.</>,
       ]} />
     </SlideFrame>,
@@ -785,24 +822,16 @@ function buildSlides() {
 export default function App() {
   const [mode, setMode] = useState("lab");
   const modes = [["lab", "Lab"], ["story", "Story"], ["slides", "Slides"]];
-  const tab = (active) => ({
-    padding: "8px 16px", borderRadius: 9, border: `1px solid ${active ? C.ink : C.line}`,
-    background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink,
-    fontFamily: sans, fontWeight: 600, fontSize: 13.5, cursor: "pointer", transition: "all .15s",
-  });
+  const tab = (active) => ({ padding: "8px 16px", borderRadius: 9, border: `1px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "#fff", color: active ? "#fff" : C.ink, fontFamily: sans, fontWeight: 600, fontSize: 13.5, cursor: "pointer", transition: "all .15s" });
 
   return (
     <div style={{ background: C.canvas, color: C.ink, padding: "22px 18px 36px", borderRadius: 14, maxWidth: 1060, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
           <Eyebrow color={C.live}>Single-source shortest paths · 2022–2026</Eyebrow>
-          <h1 style={{ fontFamily: serif, fontSize: "clamp(24px,4vw,34px)", margin: "3px 0 0", letterSpacing: -0.4 }}>
-            From Dijkstra to the sorting-barrier break
-          </h1>
+          <h1 style={{ fontFamily: serif, fontSize: "clamp(24px,4vw,34px)", margin: "3px 0 0", letterSpacing: -0.4 }}>From Dijkstra to the sorting-barrier break</h1>
         </div>
-        <div style={{ display: "flex", gap: 7 }}>
-          {modes.map(([k, l]) => <button key={k} onClick={() => setMode(k)} style={tab(mode === k)}>{l}</button>)}
-        </div>
+        <div style={{ display: "flex", gap: 7 }}>{modes.map(([k, l]) => <button key={k} onClick={() => setMode(k)} style={tab(mode === k)}>{l}</button>)}</div>
       </div>
       <div style={{ height: 1, background: C.line, margin: "16px 0 18px" }} />
 
